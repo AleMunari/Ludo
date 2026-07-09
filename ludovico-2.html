@@ -128,18 +128,22 @@
   .btn-primary{background:var(--yellow);color:#1f3a52;font-weight:700;}
   .btn-secondary{background:var(--blue);color:#fff;font-weight:700;border:3px solid var(--blue);}
   input[type=file]{display:none;}
-  .new-cat-picker{
-    display:none;
-    justify-content:center;
-    gap:0.5rem;
-    padding:0 0 1.5rem;
-    flex-wrap:wrap;
-    align-items:center;
-    font-size:0.9rem;
+  .cat-hint{
+    text-align:center;
+    font-size:0.85rem;
     font-weight:500;
     color:var(--ink-soft);
+    margin:-0.75rem 0 1.5rem;
   }
-  .new-cat-picker.show{display:flex;}
+  .cat-hint strong{color:var(--ink);}
+  .copyright-note{
+    text-align:center;
+    font-size:0.78rem;
+    color:var(--ink-soft);
+    max-width:640px;
+    margin:3rem auto 0;
+    line-height:1.5;
+  }
   .status{
     text-align:center;
     color:var(--ink-soft);
@@ -282,14 +286,11 @@
     <label class="btn btn-primary" for="fileInput">＋ Aggiungi opera</label>
     <input type="file" id="fileInput" accept="image/*" multiple>
     <button class="btn btn-secondary" id="exportBtn">⬇️ Esporta archivio</button>
+    <label class="btn btn-secondary" for="importInput">⬆️ Importa archivio</label>
+    <input type="file" id="importInput" accept=".zip">
   </div>
 
-  <div class="new-cat-picker" id="catPicker">
-    <span>Categoria per le foto in arrivo:</span>
-    <div class="chip active" data-cat="disegno" id="nc-disegno">🖍️ Disegno</div>
-    <div class="chip" data-cat="fotografia" id="nc-fotografia">📷 Fotografia</div>
-    <div class="chip" data-cat="opera plastica" id="nc-plastica">🧸 Opera plastica</div>
-  </div>
+  <p class="cat-hint" id="catHint">Le nuove opere verranno salvate come <strong id="catHintLabel">Disegno</strong> — cambia scegliendo un filtro qui sopra.</p>
 
   <div class="status" id="status"></div>
   <div class="grid" id="grid"></div>
@@ -297,6 +298,7 @@
     <h2>Nessuna opera ancora</h2>
     <p>Tocca "＋ Aggiungi opera" per caricare il primo disegno, foto o scatto di un'opera plastica.</p>
   </div>
+  <p class="copyright-note">Le opere raccolte in questo archivio sono protette da diritto d'autore. Riproduzione, diffusione o utilizzo, in tutto o in parte, sono consentiti solo previo consenso scritto dell'autore.</p>
 </div>
 
 <div class="lightbox" id="lightbox">
@@ -318,7 +320,13 @@ const grid = document.getElementById('grid');
 const status = document.getElementById('status');
 const emptyState = document.getElementById('emptyState');
 const fileInput = document.getElementById('fileInput');
-const catPicker = document.getElementById('catPicker');
+const importInput = document.getElementById('importInput');
+const catHintLabel = document.getElementById('catHintLabel');
+
+const catLabels = { 'disegno': 'Disegno', 'fotografia': 'Fotografia', 'opera plastica': 'Opera plastica' };
+function updateCatHint(){
+  catHintLabel.textContent = catLabels[uploadCategory] || 'Disegno';
+}
 
 function slugCat(cat){ return cat.replace(' ', '-'); }
 function setStatus(msg){ status.textContent = msg || ''; }
@@ -457,7 +465,6 @@ async function addFiles(fileList){
     setStatus('Caricamento in corso (' + done + '/' + files.length + ')...');
   }
   setStatus('');
-  catPicker.classList.remove('show');
   render();
   if(failed.length > 0){
     alert('Non sono riuscito a caricare ' + failed.length + ' foto (' + failed.join(', ') + '). Prova a rifare lo scatto o a scegliere un\'altra foto: potrebbe essere un formato non supportato (es. HEIC) o poco spazio libero.');
@@ -493,20 +500,60 @@ function downloadBlob(blob, filename){
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+async function importArchive(file){
+  setStatus('Importazione in corso...');
+  try{
+    const zip = await withTimeout(JSZip.loadAsync(file), 15000, 'Lettura archivio zip');
+    const manifestEntry = zip.file('archivio.json');
+    if(!manifestEntry){
+      alert('Questo file non sembra un archivio esportato da questa app (manca archivio.json).');
+      setStatus('');
+      return;
+    }
+    const manifestText = await manifestEntry.async('string');
+    const manifest = JSON.parse(manifestText);
+    let imported = 0;
+    let skipped = 0;
+    for(const entry of manifest){
+      const zipFile = entry.file ? zip.file(entry.file) : null;
+      if(!zipFile){ skipped++; continue; }
+      const blob = await zipFile.async('blob');
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+      const record = {
+        id,
+        category: entry.categoria || 'disegno',
+        title: entry.titolo || 'Opera',
+        date: entry.data || new Date().toISOString().slice(0,10),
+        blob
+      };
+      await withTimeout(dbPut(record), 15000, 'Salvataggio opera importata');
+      works.unshift({ ...record, url: URL.createObjectURL(blob) });
+      imported++;
+    }
+    setStatus('');
+    render();
+    alert('Importate ' + imported + ' opere.' + (skipped > 0 ? ' (' + skipped + ' non trovate nel file)' : ''));
+  }catch(e){
+    console.error('Errore importazione', e);
+    setStatus('');
+    alert('Non sono riuscito a importare questo archivio: ' + e.message);
+  }
+}
+
 async function exportArchive(){
   if(works.length === 0){ alert('L\'archivio è vuoto, non c\'è ancora nulla da esportare.'); return; }
   setStatus('Preparazione archivio da scaricare...');
   const zip = new JSZip();
-  const used = {};
+  const nameByIdForZip = {};
   works.forEach(w => {
     let base = w.date + '_' + sanitize(w.category) + '_' + sanitize(w.title);
     let name = base + '.jpg';
     let n = 1;
-    while(used[name]){ name = base + '_' + (++n) + '.jpg'; }
-    used[name] = true;
+    while(Object.values(nameByIdForZip).includes(name)){ name = base + '_' + (++n) + '.jpg'; }
+    nameByIdForZip[w.id] = name;
     zip.file(name, w.blob);
   });
-  const manifest = works.map(w => ({titolo: w.title, categoria: w.category, data: w.date}));
+  const manifest = works.map(w => ({titolo: w.title, categoria: w.category, data: w.date, file: nameByIdForZip[w.id]}));
   zip.file('archivio.json', JSON.stringify(manifest, null, 2));
   const blob = await zip.generateAsync({type:'blob'});
   downloadBlob(blob, 'ludovico_archivio.zip');
@@ -587,28 +634,27 @@ document.getElementById('filterChips').addEventListener('click', (e) => {
   document.querySelectorAll('#filterChips .chip').forEach(c => c.classList.remove('active'));
   chip.classList.add('active');
   currentFilter = chip.dataset.cat;
+  if(currentFilter !== 'tutte'){
+    uploadCategory = currentFilter;
+    updateCatHint();
+  }
   render();
 });
 
-document.getElementById('catPicker').addEventListener('click', (e) => {
-  const chip = e.target.closest('.chip');
-  if(!chip) return;
-  document.querySelectorAll('#catPicker .chip').forEach(c => c.classList.remove('active'));
-  chip.classList.add('active');
-  uploadCategory = chip.dataset.cat;
-});
-
-fileInput.addEventListener('click', () => { catPicker.classList.add('show'); });
 fileInput.addEventListener('change', (e) => {
-  if(e.target.files.length === 0){
-    catPicker.classList.remove('show');
-    return;
-  }
+  if(e.target.files.length === 0) return;
   addFiles(e.target.files);
   fileInput.value = '';
 });
 
+updateCatHint();
+
 document.getElementById('exportBtn').addEventListener('click', exportArchive);
+importInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if(file) importArchive(file);
+  importInput.value = '';
+});
 
 loadAll();
 </script>
