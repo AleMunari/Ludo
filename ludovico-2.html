@@ -312,6 +312,7 @@ let works = [];
 let currentFilter = 'tutte';
 let uploadCategory = 'disegno';
 let lightboxCurrent = null;
+let db = null;
 
 const grid = document.getElementById('grid');
 const status = document.getElementById('status');
@@ -322,27 +323,63 @@ const catPicker = document.getElementById('catPicker');
 function slugCat(cat){ return cat.replace(' ', '-'); }
 function setStatus(msg){ status.textContent = msg || ''; }
 
+function openDB(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('ludovicoDB', 1);
+    req.onupgradeneeded = (e) => {
+      const database = e.target.result;
+      if(!database.objectStoreNames.contains('opere')){
+        database.createObjectStore('opere', { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+function dbGetAll(){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('opere', 'readonly');
+    const store = tx.objectStore('opere');
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbPut(record){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('opere', 'readwrite');
+    tx.objectStore('opere').put(record);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function dbDelete(id){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('opere', 'readwrite');
+    tx.objectStore('opere').delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 async function loadAll(){
   setStatus('Caricamento archivio...');
   try{
-    const idx = await window.storage.get('opere:index');
-    const ids = idx ? JSON.parse(idx.value) : [];
-    const loaded = [];
-    for(const id of ids){
-      try{
-        const res = await window.storage.get('opera:' + id);
-        if(res) loaded.push(JSON.parse(res.value));
-      }catch(e){}
-    }
+    db = await openDB();
+    const loaded = await dbGetAll();
     loaded.sort((a,b) => b.date.localeCompare(a.date));
     works = loaded;
-  }catch(e){ works = []; }
+  }catch(e){
+    console.error('Errore apertura archivio', e);
+    works = [];
+    setStatus('Non riesco ad aprire l\'archivio su questo browser.');
+    return;
+  }
   setStatus('');
   render();
-}
-
-async function saveIndex(){
-  await window.storage.set('opere:index', JSON.stringify(works.map(w => w.id)));
 }
 
 function resizeAndCompress(file){
@@ -390,21 +427,19 @@ async function addFiles(fileList){
         date: new Date().toISOString().slice(0,10),
         dataUrl
       };
-      await window.storage.set('opera:' + id, JSON.stringify(work));
+      await dbPut(work);
       works.unshift(work);
       done++;
       setStatus('Caricamento in corso (' + done + '/' + files.length + ')...');
     }catch(e){ console.error('Errore caricamento', e); }
   }
-  await saveIndex();
   setStatus('');
   render();
 }
 
 async function deleteWork(id){
-  try{ await window.storage.delete('opera:' + id); }catch(e){}
+  try{ await dbDelete(id); }catch(e){}
   works = works.filter(w => w.id !== id);
-  await saveIndex();
   render();
 }
 
@@ -412,7 +447,7 @@ async function renameWork(id, newTitle){
   const w = works.find(w => w.id === id);
   if(!w) return;
   w.title = newTitle;
-  await window.storage.set('opera:' + id, JSON.stringify(w));
+  await dbPut(w);
 }
 
 function sanitize(name){
