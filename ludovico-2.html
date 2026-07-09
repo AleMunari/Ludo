@@ -323,6 +323,13 @@ const catPicker = document.getElementById('catPicker');
 function slugCat(cat){ return cat.replace(' ', '-'); }
 function setStatus(msg){ status.textContent = msg || ''; }
 
+function withTimeout(promise, ms, label){
+  const timeout = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error((label || 'Operazione') + ' scaduta dopo ' + ms + 'ms')), ms);
+  });
+  return Promise.race([promise, timeout]);
+}
+
 function openDB(){
   return new Promise((resolve, reject) => {
     const req = indexedDB.open('ludovicoDB', 1);
@@ -333,7 +340,8 @@ function openDB(){
       }
     };
     req.onsuccess = (e) => resolve(e.target.result);
-    req.onerror = (e) => reject(e.target.error);
+    req.onerror = (e) => reject(e.target.error || new Error('Errore apertura database'));
+    req.onblocked = () => reject(new Error('Database bloccato da un\'altra scheda aperta'));
   });
 }
 
@@ -343,39 +351,44 @@ function dbGetAll(){
     const store = tx.objectStore('opere');
     const req = store.getAll();
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onerror = () => reject(req.error || new Error('Errore lettura archivio'));
   });
 }
 
 function dbPut(record){
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('opere', 'readwrite');
-    tx.objectStore('opere').put(record);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    try{
+      const tx = db.transaction('opere', 'readwrite');
+      tx.objectStore('opere').put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Errore scrittura'));
+      tx.onabort = () => reject(tx.error || new Error('Scrittura interrotta'));
+    }catch(err){ reject(err); }
   });
 }
 
 function dbDelete(id){
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('opere', 'readwrite');
-    tx.objectStore('opere').delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    try{
+      const tx = db.transaction('opere', 'readwrite');
+      tx.objectStore('opere').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('Errore eliminazione'));
+    }catch(err){ reject(err); }
   });
 }
 
 async function loadAll(){
   setStatus('Caricamento archivio...');
   try{
-    db = await openDB();
-    const loaded = await dbGetAll();
+    db = await withTimeout(openDB(), 8000, 'Apertura archivio');
+    const loaded = await withTimeout(dbGetAll(), 8000, 'Lettura archivio');
     loaded.sort((a,b) => b.date.localeCompare(a.date));
-    works = loaded;
+    works = loaded.map(w => ({ ...w, url: URL.createObjectURL(w.blob) }));
   }catch(e){
     console.error('Errore apertura archivio', e);
     works = [];
-    setStatus('Non riesco ad aprire l\'archivio su questo browser.');
+    setStatus('Non riesco ad aprire l\'archivio su questo browser: ' + e.message);
     return;
   }
   setStatus('');
@@ -403,13 +416,10 @@ function resizeAndCompress(file){
         const canvas = document.createElement('canvas');
         canvas.width = width; canvas.height = height;
         canvas.getContext('2d').drawImage(img, 0, 0, width, height);
-        let quality = 0.82;
-        let dataUrl = canvas.toDataURL('image/jpeg', quality);
-        while(dataUrl.length > 4.3 * 1024 * 1024 && quality > 0.35){
-          quality -= 0.12;
-          dataUrl = canvas.toDataURL('image/jpeg', quality);
-        }
-        resolve(dataUrl);
+        canvas.toBlob((blob) => {
+          if(!blob){ reject(new Error('Compressione fallita')); return; }
+          resolve(blob);
+        }, 'image/jpeg', 0.82);
       }catch(err){
         reject(err);
       }
@@ -417,10 +427,7 @@ function resizeAndCompress(file){
     img.onerror = () => reject(new Error('Formato immagine non supportato (es. HEIC)'));
     reader.readAsDataURL(file);
   });
-  const timeout = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Tempo scaduto durante la lettura dell\'immagine')), 12000);
-  });
-  return Promise.race([work, timeout]);
+  return withTimeout(work, 12000, 'Lettura immagine');
 }
 
 async function addFiles(fileList){
@@ -431,17 +438,17 @@ async function addFiles(fileList){
   const failed = [];
   for(const file of files){
     try{
-      const dataUrl = await resizeAndCompress(file);
+      const blob = await resizeAndCompress(file);
       const id = Date.now().toString(36) + Math.random().toString(36).slice(2,7);
-      const workItem = {
+      const record = {
         id,
         category: uploadCategory,
         title: uploadCategory === 'disegno' ? 'Disegno' : uploadCategory === 'fotografia' ? 'Fotografia' : 'Opera plastica',
         date: new Date().toISOString().slice(0,10),
-        dataUrl
+        blob
       };
-      await dbPut(workItem);
-      works.unshift(workItem);
+      await withTimeout(dbPut(record), 15000, 'Salvataggio foto');
+      works.unshift({ ...record, url: URL.createObjectURL(blob) });
     }catch(e){
       console.error('Errore caricamento', file.name, e);
       failed.push(file.name);
@@ -450,14 +457,17 @@ async function addFiles(fileList){
     setStatus('Caricamento in corso (' + done + '/' + files.length + ')...');
   }
   setStatus('');
+  catPicker.classList.remove('show');
   render();
   if(failed.length > 0){
-    alert('Non sono riuscito a caricare ' + failed.length + ' foto (' + failed.join(', ') + '). Prova a rifare lo scatto o a scegliere un\'altra foto: potrebbe essere un formato non supportato (es. HEIC).');
+    alert('Non sono riuscito a caricare ' + failed.length + ' foto (' + failed.join(', ') + '). Prova a rifare lo scatto o a scegliere un\'altra foto: potrebbe essere un formato non supportato (es. HEIC) o poco spazio libero.');
   }
 }
 
 async function deleteWork(id){
-  try{ await dbDelete(id); }catch(e){}
+  try{ await withTimeout(dbDelete(id), 8000, 'Eliminazione'); }catch(e){ console.error(e); }
+  const w = works.find(w => w.id === id);
+  if(w && w.url) URL.revokeObjectURL(w.url);
   works = works.filter(w => w.id !== id);
   render();
 }
@@ -466,20 +476,13 @@ async function renameWork(id, newTitle){
   const w = works.find(w => w.id === id);
   if(!w) return;
   w.title = newTitle;
-  await dbPut(w);
+  try{
+    await withTimeout(dbPut({ id: w.id, category: w.category, title: w.title, date: w.date, blob: w.blob }), 8000, 'Salvataggio titolo');
+  }catch(e){ console.error(e); }
 }
 
 function sanitize(name){
   return name.replace(/[^a-z0-9àèéìòù ]/gi, '').trim().replace(/\s+/g, '_') || 'opera';
-}
-
-function dataUrlToBlob(dataUrl){
-  const [meta, b64] = dataUrl.split(',');
-  const mime = meta.match(/data:(.*);base64/)[1];
-  const bin = atob(b64);
-  const arr = new Uint8Array(bin.length);
-  for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
-  return new Blob([arr], {type: mime});
 }
 
 function downloadBlob(blob, filename){
@@ -501,7 +504,7 @@ async function exportArchive(){
     let n = 1;
     while(used[name]){ name = base + '_' + (++n) + '.jpg'; }
     used[name] = true;
-    zip.file(name, dataUrlToBlob(w.dataUrl));
+    zip.file(name, w.blob);
   });
   const manifest = works.map(w => ({titolo: w.title, categoria: w.category, data: w.date}));
   zip.file('archivio.json', JSON.stringify(manifest, null, 2));
@@ -520,14 +523,14 @@ function render(){
     card.className = 'card ' + slugCat(w.category);
 
     const img = document.createElement('img');
-    img.src = w.dataUrl;
+    img.src = w.url;
     img.alt = w.title;
     img.addEventListener('click', () => openLightbox(w));
 
     const label = document.createElement('div');
     label.className = 'label';
 
-    const icon = w.category === 'disegno' ? '🖍️' : w.category === 'fotografia' ? '📷' : '🧸';
+    const icon = w.category === 'disegno' ? '\ud83d\udd8d\ufe0f' : w.category === 'fotografia' ? '\ud83d\udcf7' : '\ud83e\uddf8';
     const tag = document.createElement('span');
     tag.className = 'tag ' + slugCat(w.category);
     tag.textContent = icon + ' ' + w.category;
@@ -563,7 +566,7 @@ function render(){
 
 function openLightbox(w){
   lightboxCurrent = w;
-  document.getElementById('lightboxImg').src = w.dataUrl;
+  document.getElementById('lightboxImg').src = w.url;
   document.getElementById('lightboxImg').alt = w.title;
   document.getElementById('lightbox').classList.add('show');
 }
@@ -575,7 +578,7 @@ document.getElementById('lightbox').addEventListener('click', (e) => {
 });
 document.getElementById('lightboxDownload').addEventListener('click', () => {
   if(!lightboxCurrent) return;
-  downloadBlob(dataUrlToBlob(lightboxCurrent.dataUrl), sanitize(lightboxCurrent.title) + '.jpg');
+  downloadBlob(lightboxCurrent.blob, sanitize(lightboxCurrent.title) + '.jpg');
 });
 
 document.getElementById('filterChips').addEventListener('click', (e) => {
@@ -597,6 +600,10 @@ document.getElementById('catPicker').addEventListener('click', (e) => {
 
 fileInput.addEventListener('click', () => { catPicker.classList.add('show'); });
 fileInput.addEventListener('change', (e) => {
+  if(e.target.files.length === 0){
+    catPicker.classList.remove('show');
+    return;
+  }
   addFiles(e.target.files);
   fileInput.value = '';
 });
