@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ludovico — disegni, fotografie e opere plastiche</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --paper:#eaf7ff;
+    --surface:#ffffff;
+    --ink:#1f3a52;
+    --ink-soft:#4f7a94;
+    --red:#ff5a5a;
+    --red-bg:#ffd6d6;
+    --blue:#00b4f0;
+    --blue-bg:#bdeaff;
+    --green:#3fc47f;
+    --green-bg:#c9f5da;
+    --yellow:#ffd400;
+    --yellow-bg:#fff2a8;
+    --purple:#9b6bd9;
+    --purple-bg:#e4d4fb;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(circle 10px at 6% 8%, var(--yellow) 98%, transparent 100%),
+      radial-gradient(circle 7px at 14% 22%, var(--blue) 98%, transparent 100%),
+      radial-gradient(circle 8px at 92% 10%, var(--blue) 98%, transparent 100%),
+      radial-gradient(circle 6px at 85% 26%, var(--yellow) 98%, transparent 100%),
+      radial-gradient(circle 9px at 4% 70%, var(--blue) 98%, transparent 100%),
+      radial-gradient(circle 7px at 95% 60%, var(--yellow) 98%, transparent 100%),
+      radial-gradient(circle 8px at 90% 92%, var(--blue) 98%, transparent 100%),
+      radial-gradient(circle 6px at 8% 94%, var(--yellow) 98%, transparent 100%),
+      radial-gradient(circle at 10% 15%, var(--yellow-bg) 0, transparent 35%),
+      radial-gradient(circle at 90% 15%, var(--blue-bg) 0, transparent 40%),
+      radial-gradient(circle at 15% 85%, var(--blue-bg) 0, transparent 35%),
+      radial-gradient(circle at 88% 88%, var(--yellow-bg) 0, transparent 40%),
+      var(--paper);
+    background-attachment:fixed;
+    color:var(--ink);
+    font-family:'Fredoka',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    padding-bottom:5rem;
+    min-height:100vh;
+  }
+  .header{
+    text-align:center;
+    padding:3rem 1.5rem 1.5rem;
+    position:relative;
+  }
+  .header h1{
+    display:inline-block;
+    font-size:3.6rem;
+    font-weight:700;
+    margin:0;
+    color:var(--ink);
+    letter-spacing:0.01em;
+    background:var(--yellow);
+    padding:0.15rem 1.4rem 0.25rem;
+    border-radius:24px;
+    box-shadow:0 5px 0 rgba(0,0,0,0.1);
+    transform:rotate(-2deg);
+  }
+  .squiggle{display:block;margin:0.6rem auto 1rem;}
+  .header p{
+    margin:0;
+    font-size:1.1rem;
+    font-weight:600;
+    color:#fff;
+    background:var(--blue);
+    display:inline-block;
+    padding:0.35rem 1.1rem;
+    border-radius:999px;
+    box-shadow:0 3px 0 rgba(0,0,0,0.1);
+  }
+  .container{max-width:960px;margin:0 auto;padding:0 1.25rem;}
+  .toolbar{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    justify-content:center;
+    gap:0.6rem;
+    padding:1rem 0 1.75rem;
+  }
+  .chip{
+    border:3px solid var(--blue-bg);
+    padding:0.55rem 1.15rem;
+    border-radius:999px;
+    font-size:0.95rem;
+    font-weight:700;
+    cursor:pointer;
+    user-select:none;
+    font-family:inherit;
+    transition:transform .12s ease;
+    background:var(--surface);
+    color:var(--ink-soft);
+    box-shadow:0 3px 0 rgba(0,0,0,0.08);
+  }
+  .chip:active{transform:scale(0.94);}
+  .chip[data-cat="tutte"].active{background:var(--ink);color:#fff;}
+  .chip[data-cat="disegno"].active{background:var(--red-bg);color:#c8392b;border-color:var(--red);}
+  .chip[data-cat="fotografia"].active{background:var(--blue-bg);color:#1c7ba6;border-color:var(--blue);}
+  .chip[data-cat="opera plastica"].active{background:var(--green-bg);color:#2f7d55;border-color:var(--green);}
+  .action-row{
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:center;
+    gap:0.75rem;
+    padding-bottom:1.5rem;
+  }
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    gap:0.5rem;
+    border:none;
+    padding:0.75rem 1.4rem;
+    border-radius:999px;
+    font-size:1rem;
+    font-weight:600;
+    font-family:inherit;
+    cursor:pointer;
+    box-shadow:0 3px 0 rgba(0,0,0,0.12);
+  }
+  .btn:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,0.12);}
+  .btn-primary{background:var(--yellow);color:#1f3a52;font-weight:700;}
+  .btn-secondary{background:var(--blue);color:#fff;font-weight:700;border:3px solid var(--blue);}
+  input[type=file]{display:none;}
+  .new-cat-picker{
+    display:none;
+    justify-content:center;
+    gap:0.5rem;
+    padding:0 0 1.5rem;
+    flex-wrap:wrap;
+    align-items:center;
+    font-size:0.9rem;
+    font-weight:500;
+    color:var(--ink-soft);
+  }
+  .new-cat-picker.show{display:flex;}
+  .status{
+    text-align:center;
+    color:var(--ink-soft);
+    font-weight:500;
+    padding:0.5rem 0 1rem;
+  }
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
+    gap:2rem;
+    margin-top:0.5rem;
+  }
+  .card{
+    background:var(--surface);
+    border-radius:18px;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+    box-shadow:0 7px 0 rgba(0,120,180,0.12);
+    transform:rotate(var(--tilt,-1deg));
+    border:5px solid var(--frame,var(--yellow));
+  }
+  .card:nth-child(3n+1){--tilt:-1.5deg;}
+  .card:nth-child(3n+2){--tilt:1deg;}
+  .card:nth-child(3n){--tilt:-0.5deg;}
+  .card.disegno{--frame:var(--red);}
+  .card.fotografia{--frame:var(--blue);}
+  .card.opera-plastica{--frame:var(--green);}
+  .card img{
+    width:100%;
+    aspect-ratio:1/1;
+    object-fit:cover;
+    display:block;
+    background:var(--paper);
+    cursor:pointer;
+  }
+  .label{padding:0.85rem 0.95rem 1rem;}
+  .label .tag{
+    display:inline-flex;
+    align-items:center;
+    gap:0.3rem;
+    font-size:0.72rem;
+    font-weight:600;
+    padding:0.2rem 0.6rem;
+    border-radius:999px;
+    margin-bottom:0.5rem;
+  }
+  .tag.disegno{background:var(--red-bg);color:#c8392b;}
+  .tag.fotografia{background:var(--blue-bg);color:#1c7ba6;}
+  .tag.opera-plastica{background:var(--green-bg);color:#2f7d55;}
+  .label input.title-field{
+    border:none;
+    background:transparent;
+    font-family:inherit;
+    font-size:1.05rem;
+    font-weight:600;
+    color:var(--ink);
+    width:100%;
+    padding:0;
+    margin-bottom:0.25rem;
+  }
+  .label input.title-field:focus{outline:none;border-bottom:2px dashed var(--purple);}
+  .label .meta{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-size:0.8rem;
+    color:var(--ink-soft);
+    font-weight:500;
+  }
+  .del-btn{
+    background:none;
+    border:none;
+    color:var(--ink-soft);
+    cursor:pointer;
+    font-size:0.8rem;
+    font-weight:600;
+    font-family:inherit;
+    padding:0;
+  }
+  .empty{
+    text-align:center;
+    padding:4rem 1rem;
+    color:var(--ink-soft);
+  }
+  .empty h2{
+    font-weight:700;
+    color:var(--ink);
+    margin-bottom:0.4rem;
+    font-size:1.6rem;
+  }
+  .lightbox{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(40,30,15,0.9);
+    z-index:100;
+    align-items:center;
+    justify-content:center;
+    padding:2rem;
+    flex-direction:column;
+    gap:1rem;
+  }
+  .lightbox.show{display:flex;}
+  .lightbox img{max-width:100%;max-height:75vh;border-radius:14px;}
+  .lightbox-controls{display:flex;gap:0.75rem;}
+  .lightbox-close{
+    position:absolute;
+    top:1.5rem;
+    right:1.5rem;
+    background:var(--yellow);
+    border:none;
+    color:var(--ink);
+    width:44px;
+    height:44px;
+    border-radius:50%;
+    cursor:pointer;
+    font-size:1.1rem;
+    font-weight:700;
+    box-shadow:0 3px 0 rgba(0,0,0,0.1);
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Ludovico</h1>
+  <p>disegni, fotografie e opere plastiche</p>
+</div>
+
+<div class="container">
+  <div class="toolbar" id="filterChips">
+    <div class="chip active" data-cat="tutte">🌈 Tutte</div>
+    <div class="chip" data-cat="disegno">🖍️ Disegni</div>
+    <div class="chip" data-cat="fotografia">📷 Fotografie</div>
+    <div class="chip" data-cat="opera plastica">🧸 Opere plastiche</div>
+  </div>
+
+  <div class="action-row">
+    <label class="btn btn-primary" for="fileInput">＋ Aggiungi opera</label>
+    <input type="file" id="fileInput" accept="image/*" multiple>
+    <button class="btn btn-secondary" id="exportBtn">⬇️ Esporta archivio</button>
+  </div>
+
+  <div class="new-cat-picker" id="catPicker">
+    <span>Categoria per le foto in arrivo:</span>
+    <div class="chip active" data-cat="disegno" id="nc-disegno">🖍️ Disegno</div>
+    <div class="chip" data-cat="fotografia" id="nc-fotografia">📷 Fotografia</div>
+    <div class="chip" data-cat="opera plastica" id="nc-plastica">🧸 Opera plastica</div>
+  </div>
+
+  <div class="status" id="status"></div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="emptyState" style="display:none;">
+    <h2>Nessuna opera ancora</h2>
+    <p>Tocca "＋ Aggiungi opera" per caricare il primo disegno, foto o scatto di un'opera plastica.</p>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" id="lightboxClose">✕</button>
+  <img id="lightboxImg" src="" alt="">
+  <div class="lightbox-controls">
+    <button class="btn btn-secondary" id="lightboxDownload">⬇️ Scarica questa foto</button>
+  </div>
+</div>
+
+<script>
+let works = [];
+let currentFilter = 'tutte';
+let uploadCategory = 'disegno';
+let lightboxCurrent = null;
+
+const grid = document.getElementById('grid');
+const status = document.getElementById('status');
+const emptyState = document.getElementById('emptyState');
+const fileInput = document.getElementById('fileInput');
+const catPicker = document.getElementById('catPicker');
+
+function slugCat(cat){ return cat.replace(' ', '-'); }
+function setStatus(msg){ status.textContent = msg || ''; }
+
+async function loadAll(){
+  setStatus('Caricamento archivio...');
+  try{
+    const idx = await window.storage.get('opere:index');
+    const ids = idx ? JSON.parse(idx.value) : [];
+    const loaded = [];
+    for(const id of ids){
+      try{
+        const res = await window.storage.get('opera:' + id);
+        if(res) loaded.push(JSON.parse(res.value));
+      }catch(e){}
+    }
+    loaded.sort((a,b) => b.date.localeCompare(a.date));
+    works = loaded;
+  }catch(e){ works = []; }
+  setStatus('');
+  render();
+}
+
+async function saveIndex(){
+  await window.storage.set('opere:index', JSON.stringify(works.map(w => w.id)));
+}
+
+function resizeAndCompress(file){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = e => { img.src = e.target.result; };
+    reader.onerror = reject;
+    img.onload = () => {
+      const maxDim = 1400;
+      let { width, height } = img;
+      if(width > maxDim || height > maxDim){
+        if(width > height){ height = Math.round(height * maxDim / width); width = maxDim; }
+        else{ width = Math.round(width * maxDim / height); height = maxDim; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      let quality = 0.82;
+      let dataUrl = canvas.toDataURL('image/jpeg', quality);
+      while(dataUrl.length > 4.3 * 1024 * 1024 && quality > 0.35){
+        quality -= 0.12;
+        dataUrl = canvas.toDataURL('image/jpeg', quality);
+      }
+      resolve(dataUrl);
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addFiles(fileList){
+  const files = Array.from(fileList);
+  if(files.length === 0) return;
+  setStatus('Caricamento in corso (0/' + files.length + ')...');
+  let done = 0;
+  for(const file of files){
+    try{
+      const dataUrl = await resizeAndCompress(file);
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+      const work = {
+        id,
+        category: uploadCategory,
+        title: uploadCategory === 'disegno' ? 'Disegno' : uploadCategory === 'fotografia' ? 'Fotografia' : 'Opera plastica',
+        date: new Date().toISOString().slice(0,10),
+        dataUrl
+      };
+      await window.storage.set('opera:' + id, JSON.stringify(work));
+      works.unshift(work);
+      done++;
+      setStatus('Caricamento in corso (' + done + '/' + files.length + ')...');
+    }catch(e){ console.error('Errore caricamento', e); }
+  }
+  await saveIndex();
+  setStatus('');
+  render();
+}
+
+async function deleteWork(id){
+  try{ await window.storage.delete('opera:' + id); }catch(e){}
+  works = works.filter(w => w.id !== id);
+  await saveIndex();
+  render();
+}
+
+async function renameWork(id, newTitle){
+  const w = works.find(w => w.id === id);
+  if(!w) return;
+  w.title = newTitle;
+  await window.storage.set('opera:' + id, JSON.stringify(w));
+}
+
+function sanitize(name){
+  return name.replace(/[^a-z0-9àèéìòù ]/gi, '').trim().replace(/\s+/g, '_') || 'opera';
+}
+
+function dataUrlToBlob(dataUrl){
+  const [meta, b64] = dataUrl.split(',');
+  const mime = meta.match(/data:(.*);base64/)[1];
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], {type: mime});
+}
+
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+async function exportArchive(){
+  if(works.length === 0){ alert('L\'archivio è vuoto, non c\'è ancora nulla da esportare.'); return; }
+  setStatus('Preparazione archivio da scaricare...');
+  const zip = new JSZip();
+  const used = {};
+  works.forEach(w => {
+    let base = w.date + '_' + sanitize(w.category) + '_' + sanitize(w.title);
+    let name = base + '.jpg';
+    let n = 1;
+    while(used[name]){ name = base + '_' + (++n) + '.jpg'; }
+    used[name] = true;
+    zip.file(name, dataUrlToBlob(w.dataUrl));
+  });
+  const manifest = works.map(w => ({titolo: w.title, categoria: w.category, data: w.date}));
+  zip.file('archivio.json', JSON.stringify(manifest, null, 2));
+  const blob = await zip.generateAsync({type:'blob'});
+  downloadBlob(blob, 'ludovico_archivio.zip');
+  setStatus('');
+}
+
+function render(){
+  const filtered = currentFilter === 'tutte' ? works : works.filter(w => w.category === currentFilter);
+  grid.innerHTML = '';
+  emptyState.style.display = filtered.length === 0 ? 'block' : 'none';
+
+  filtered.forEach(w => {
+    const card = document.createElement('div');
+    card.className = 'card ' + slugCat(w.category);
+
+    const img = document.createElement('img');
+    img.src = w.dataUrl;
+    img.alt = w.title;
+    img.addEventListener('click', () => openLightbox(w));
+
+    const label = document.createElement('div');
+    label.className = 'label';
+
+    const icon = w.category === 'disegno' ? '🖍️' : w.category === 'fotografia' ? '📷' : '🧸';
+    const tag = document.createElement('span');
+    tag.className = 'tag ' + slugCat(w.category);
+    tag.textContent = icon + ' ' + w.category;
+
+    const titleField = document.createElement('input');
+    titleField.className = 'title-field';
+    titleField.value = w.title;
+    titleField.addEventListener('change', () => renameWork(w.id, titleField.value));
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const dateSpan = document.createElement('span');
+    dateSpan.textContent = w.date;
+    const delBtn = document.createElement('button');
+    delBtn.className = 'del-btn';
+    delBtn.textContent = 'Elimina';
+    delBtn.addEventListener('click', () => {
+      if(confirm('Eliminare questa opera dall\'archivio?')) deleteWork(w.id);
+    });
+    meta.appendChild(dateSpan);
+    meta.appendChild(delBtn);
+
+    label.appendChild(tag);
+    label.appendChild(document.createElement('br'));
+    label.appendChild(titleField);
+    label.appendChild(meta);
+
+    card.appendChild(img);
+    card.appendChild(label);
+    grid.appendChild(card);
+  });
+}
+
+function openLightbox(w){
+  lightboxCurrent = w;
+  document.getElementById('lightboxImg').src = w.dataUrl;
+  document.getElementById('lightboxImg').alt = w.title;
+  document.getElementById('lightbox').classList.add('show');
+}
+document.getElementById('lightboxClose').addEventListener('click', () => {
+  document.getElementById('lightbox').classList.remove('show');
+});
+document.getElementById('lightbox').addEventListener('click', (e) => {
+  if(e.target.id === 'lightbox') document.getElementById('lightbox').classList.remove('show');
+});
+document.getElementById('lightboxDownload').addEventListener('click', () => {
+  if(!lightboxCurrent) return;
+  downloadBlob(dataUrlToBlob(lightboxCurrent.dataUrl), sanitize(lightboxCurrent.title) + '.jpg');
+});
+
+document.getElementById('filterChips').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip');
+  if(!chip) return;
+  document.querySelectorAll('#filterChips .chip').forEach(c => c.classList.remove('active'));
+  chip.classList.add('active');
+  currentFilter = chip.dataset.cat;
+  render();
+});
+
+document.getElementById('catPicker').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip');
+  if(!chip) return;
+  document.querySelectorAll('#catPicker .chip').forEach(c => c.classList.remove('active'));
+  chip.classList.add('active');
+  uploadCategory = chip.dataset.cat;
+});
+
+fileInput.addEventListener('click', () => { catPicker.classList.add('show'); });
+fileInput.addEventListener('change', (e) => {
+  addFiles(e.target.files);
+  fileInput.value = '';
+});
+
+document.getElementById('exportBtn').addEventListener('click', exportArchive);
+
+loadAll();
+</script>
+
+</body>
+</html>
