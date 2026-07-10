@@ -561,6 +561,7 @@ async function exportArchive(){
 }
 
 function render(){
+  works.sort((a,b) => b.date.localeCompare(a.date));
   const filtered = currentFilter === 'tutte' ? works : works.filter(w => w.category === currentFilter);
   grid.innerHTML = '';
   emptyState.style.display = filtered.length === 0 ? 'block' : 'none';
